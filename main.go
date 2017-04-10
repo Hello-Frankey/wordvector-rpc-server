@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	bin "encoding/binary"
 	"errors"
 	"flag"
 	"fmt"
@@ -13,6 +15,7 @@ import (
 
 	pb "wordvector-rpc-server/wordvector"
 
+	"github.com/ziutek/blas"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
@@ -75,12 +78,77 @@ func initConfig() error {
 		return errors.New("missing valid port number")
 	}
 	if *size <= 0 {
-		return errors.New("missing valid vector size")
+		if !*binary {
+			return errors.New("missing valid vector size")
+		}
 	}
 	return nil
 }
 
-func loadBinaryWordVector(file string, size int) error {
+// normalizeFeatures normalizes the given feature vector.
+func normalizeFeatures(features []float32) float32 {
+	norm := blas.Snrm2(len(features), features, 1)
+	blas.Sscal(len(features), 1/norm, features, 1)
+	return norm
+}
+
+func loadBinaryWordVector(file string) error {
+	in, err := os.Open(file)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	var index int64
+	startTime := time.Now()
+	var words, size int64
+	_, err = fmt.Fscanf(in, "%d %d", &words, &size)
+	if err != nil {
+		return errors.New("invalid binary word vector file format")
+	}
+	log.Printf("vocabulary size: %d, vector size: %d\n", words, size)
+
+	vocabulary = make(map[string]int64)
+	vectors = make([][]float32, words)
+	probe := make([]byte, 100)
+	feature := make([]byte, size*4)
+	for {
+		if index == words {
+			break
+		}
+		rn, err := in.Read(probe)
+		if rn == 0 {
+			break
+		} else if rn < 0 {
+			return err
+		}
+		var word string
+		for i, b := range probe {
+			if b == ' ' {
+				if probe[0] == '\n' {
+					word = string(probe[1:i])
+				} else {
+					word = string(probe[0:i])
+				}
+				copy(feature, probe[i+1:])
+				in.Read(feature[100-i-1:])
+				break
+			}
+		}
+		features := make([]float32, size)
+		buf := bytes.NewReader(feature)
+		err = bin.Read(buf, bin.LittleEndian, &features)
+		if err != nil {
+			log.Printf("failed to read feature values of word %s\n", word)
+			return err
+		}
+		normalizeFeatures(features)
+		vocabulary[word] = index
+		vectors[index] = features
+		index++
+	}
+	endTime := time.Now()
+	log.Printf("word vector loaded, time consumed: %fs, vocabulary size: %d\n",
+		endTime.Sub(startTime).Seconds(), index)
 	return nil
 }
 
@@ -122,7 +190,7 @@ func loadTextWordVector(file string, size int) error {
 // loadWordVector loads the word vectors from the given file.
 func loadWordVector(file string, size int, binary bool) error {
 	if binary {
-		return loadBinaryWordVector(file, size)
+		return loadBinaryWordVector(file)
 	}
 	return loadTextWordVector(file, size)
 }
