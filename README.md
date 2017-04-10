@@ -1,9 +1,10 @@
 ### 简介
----
+
 词向量接口服务器可以将word2vec生成的词向量文件加载到内存并通过RPC调用的方式提供词向量的查询接口。目前开放的接口仅有一个GetVector，该接口接收一个词作为输入，返回该词的词向量以及其在词典中的位置索引。
 
-### 安装
----
+### 接口服务器
+#### 服务器构建
+```
 git clone https://github.com/Hello-Frankey/wordvector-rpc-server.git
 cd wordvector-rpc-server/
 go build
@@ -17,9 +18,17 @@ Usage of ./wordvector-rpc-server:
         服务器监听的端口号 (default 50051)
   -size int
         词向量维度
+```
+#### 服务器启动
+```
+加载文本格式的词向量文件，需要提供词向量维度参数
+./wordvector-rpc-server -filepath sample_vector.txt -size 200
+加载二进制格式的词向量文件，无需提供词向量维度参数
+./wordvector-rpc-server -filepath sample_vector.bin -binary
+```
 
 ### 接口说明
----
+
 词向量接口服务器基于gRPC实现接口调用，描述接口的proto文件如下。当前仅开放一个查询接口GetVector，请求消息包含一个字段word（查询词），响应消息包含三个字段word（查询词）、index（查询词在词表中的位置索引）和features（查询词的向量值）。
 ```
 syntax = "proto3";
@@ -46,7 +55,6 @@ message GetVectorReply {
 ```
 
 ### 客户端调用代码示例
----
 #### python客户端调用
 ```
 import grpc
